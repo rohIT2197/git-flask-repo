@@ -1,0 +1,43 @@
+name: Deploy to GCP VM
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: github-actions-461810
+  REGION: us-central1
+  REPO_NAME: my-docker-repo
+  IMAGE_NAME: flask-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Authenticate to GCP
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+    - name: Configure Docker
+      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/$IMAGE_NAME:latest .
+        docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/$IMAGE_NAME:latest
+
+    - name: Deploy to VM via SSH
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.GCP_VM_IP }}
+        username: ${{ secrets.GCP_VM_USER }}
+        key: ${{ secrets.GCP_SSH_KEY }}
+        script: |
+          docker pull $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/$IMAGE_NAME:latest
+          docker stop app || true && docker rm app || true
+          docker run -d -p 80:80 --name app $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/$IMAGE_NAME:latest
